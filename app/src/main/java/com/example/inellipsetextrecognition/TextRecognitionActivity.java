@@ -83,14 +83,18 @@ public class TextRecognitionActivity extends AppCompatActivity {
         FirebaseUser firebaseUser = firebaseAuth.getCurrentUser();
         assert firebaseUser != null;
         String userID = firebaseUser.getUid();
+        try {
+            Map<String, Object> savedText = new HashMap<>();
+            savedText.put("text", text);
 
-        Map<String, Object> savedText = new HashMap<>();
-        savedText.put("text", text);
+            db.collection("Users").document(userID)
+                    .collection("Saved Texts").document(text)
+                    .set(savedText, SetOptions.merge())
+                    .addOnCompleteListener(task -> Log.d("Text", "Text Saved"));
+        } catch (Exception e) {
+            Toast.makeText(this, "Text is not found", Toast.LENGTH_SHORT).show();
+        }
 
-        db.collection("Users").document(userID)
-                .collection("Saved Texts").document(text)
-                .set(savedText, SetOptions.merge())
-                .addOnCompleteListener(task -> Log.d("Text", "Text Saved"));
     }
 
     private void dispatchTakePictureIntent() {
