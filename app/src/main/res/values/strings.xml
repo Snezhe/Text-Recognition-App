@@ -6,4 +6,6 @@
     <string name="snap">Snap</string>
     <string name="take_img">Take a picture</string>
     <string name="detect_text">Detect Text</string>
+    <string name="text_recognition_icon">text_recognition_icon</string>
+    <string name="logout_button">logout_button</string>
 </resources>

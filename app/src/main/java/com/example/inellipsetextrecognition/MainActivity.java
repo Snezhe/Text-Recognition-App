@@ -1,85 +1,130 @@
 package com.example.inellipsetextrecognition;
 
-import android.content.ActivityNotFoundException;
 import android.content.Intent;
-import android.graphics.Bitmap;
 import android.os.Bundle;
-import android.provider.MediaStore;
-import android.widget.ImageButton;
-import android.widget.ImageView;
-import android.widget.TextView;
-import android.widget.Toast;
+import android.util.Log;
 
-import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.google.android.gms.tasks.OnFailureListener;
+import com.google.android.gms.auth.api.signin.GoogleSignIn;
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount;
+import com.google.android.gms.auth.api.signin.GoogleSignInClient;
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
+import com.google.android.gms.common.SignInButton;
+import com.google.android.gms.common.api.ApiException;
 import com.google.android.gms.tasks.Task;
-import com.google.mlkit.vision.common.InputImage;
-import com.google.mlkit.vision.text.Text;
-import com.google.mlkit.vision.text.TextRecognition;
-import com.google.mlkit.vision.text.TextRecognizer;
+import com.google.firebase.auth.AuthCredential;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.auth.GoogleAuthProvider;
+import com.google.firebase.firestore.FirebaseFirestore;
+
+import java.util.HashMap;
+import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
 
-    static final int REQUEST_IMAGE_CAPTURE = 1;
-    Bitmap bMap;
-    private ImageView imageView;
-    private ImageButton takePhoto, detectText;
-    private TextView recognizedText;
+    private GoogleSignInOptions googleSignInOptions;
+    private GoogleSignInClient googleSignInClient;
+    private int RC_SIGN_IN = 1;
+    private FirebaseAuth mAuth;
+    private FirebaseFirestore db;
+    private SignInButton signInButton;
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        imageView = findViewById(R.id.image_view);
-        detectText = findViewById(R.id.detect_text_button);
-        takePhoto = findViewById(R.id.take_photo_button);
-        recognizedText = findViewById(R.id.recognized_text);
+        signInButton = findViewById(R.id.sign_in_button);
 
-        detectText.setOnClickListener(v -> runTextRecognition(bMap));
-        takePhoto.setOnClickListener(v -> dispatchTakePictureIntent());
-    }
+        mAuth = FirebaseAuth.getInstance();
+        db = FirebaseFirestore.getInstance();
 
-    private void runTextRecognition(Bitmap image) {
-        try {
-            InputImage inputImage = InputImage.fromBitmap(image, 0);
-            TextRecognizer recognizer = TextRecognition.getClient();
-            Task<Text> result = recognizer.process(inputImage)
-                    .addOnSuccessListener(text -> {
-                        processTextRecognitionResult(text);
-                    })
-                    .addOnFailureListener(
-                            e -> e.printStackTrace());
-        } catch (Exception e) {
-            Toast.makeText(this, "Please first take a picture", Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    private void processTextRecognitionResult(Text text) {
-        String resultText = text.getText();
-        recognizedText.setText(resultText);
-    }
-
-    private void dispatchTakePictureIntent() {
-        Intent takePictureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-        try {
-            startActivityForResult(takePictureIntent, REQUEST_IMAGE_CAPTURE);
-        } catch (ActivityNotFoundException e) {
-            e.printStackTrace();
-        }
+        googleSignInSetup();
+        signInButton.setOnClickListener(v -> googleSignIn());
     }
 
     @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+    public void onStart() {
+        super.onStart();
+        FirebaseUser currentUser = mAuth.getCurrentUser();
+        updateUI(currentUser);
+    }
+
+    private void googleSignInSetup() {
+        googleSignInOptions = new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestIdToken(getString(R.string.default_web_client_id))
+                .requestEmail()
+                .build();
+
+        googleSignInClient = GoogleSignIn.getClient(this, googleSignInOptions);
+    }
+
+    private void googleSignIn() {
+        Intent googleSignInIntent = googleSignInClient.getSignInIntent();
+        startActivityForResult(googleSignInIntent, RC_SIGN_IN);
+    }
+
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_IMAGE_CAPTURE && resultCode == RESULT_OK) {
-            Bundle extras = data.getExtras();
-            Bitmap imageBitmap = (Bitmap) extras.get("data");
-            bMap = imageBitmap;
-            imageView.setImageBitmap(imageBitmap);
+        if (requestCode == RC_SIGN_IN) {
+            Task<GoogleSignInAccount> task = GoogleSignIn.getSignedInAccountFromIntent(data);
+            try {
+                GoogleSignInAccount account = task.getResult(ApiException.class);
+                assert account != null;
+                Log.d("TAG", "firebaseAuthWithGoogle:" + account.getId());
+                firebaseAuthWithGoogle(account.getIdToken());
+            } catch (ApiException e) {
+                Log.w("TAG", "Google sign in failed", e);
+            }
         }
+    }
+
+    private void firebaseAuthWithGoogle(String idToken) {
+        AuthCredential credential = GoogleAuthProvider.getCredential(idToken, null);
+        mAuth.signInWithCredential(credential)
+                .addOnCompleteListener(this, task -> {
+                    if (task.isSuccessful()) {
+                        Log.d("TAG", "signInWithCredential:success");
+
+                        FirebaseUser currentUser = mAuth.getCurrentUser();
+                        assert currentUser != null;
+                        String userID = currentUser.getUid();
+
+                        Map<String, Object> user = new HashMap<>();
+                        user.put("email", currentUser.getEmail());
+
+                        db.collection("Users").document(userID)
+                                .set(user)
+                                .addOnSuccessListener(aVoid -> Log.d("User", "onSuccess: User profile is created for" + userID));
+
+                        updateUI(currentUser);
+                    } else {
+                        Log.w("TAG", "signInWithCredential:failure", task.getException());
+                        updateUI(null);
+                    }
+                });
+    }
+
+    private void updateUI(FirebaseUser user) {
+        if (user != null) {
+            finishActivity();
+            Intent textRecognitionIntent = new Intent(MainActivity.this, TextRecognitionActivity.class);
+            textRecognitionIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(textRecognitionIntent);
+        }
+    }
+
+    public void finishActivity() {
+        onBackPressed();
+    }
+
+    @Override
+    public void onBackPressed() {
+        finish();
     }
 
 }
