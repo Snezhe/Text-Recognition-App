@@ -1,8 +1,10 @@
 package com.example.inellipsetextrecognition;
 
-import android.content.ActivityNotFoundException;
+import android.Manifest;
+import android.content.ContentValues;
 import android.content.Intent;
-import android.graphics.Bitmap;
+import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.util.Log;
@@ -11,6 +13,7 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.gms.tasks.Task;
@@ -23,15 +26,17 @@ import com.google.mlkit.vision.text.Text;
 import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
 public class TextRecognitionActivity extends AppCompatActivity {
 
-    private static final int REQUEST_IMAGE_CAPTURE = 1;
-    private Bitmap bMap;
+    private static final int PERMISSION_CODE = 1000;
+    private static final int IMAGE_CAPTURE_CODE = 1001;
+    Uri image_uri;
     private ImageView imageView;
-    private ImageButton takePhoto, detectText, logOutButton;
+    private ImageButton captureButton, detectText, logOutButton;
     private TextView recognizedText;
     private FirebaseAuth firebaseAuth;
     private FirebaseFirestore db;
@@ -41,32 +46,75 @@ public class TextRecognitionActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_text_recognition);
 
-        firebaseAuth = FirebaseAuth.getInstance();
-        db = FirebaseFirestore.getInstance();
-
         imageView = findViewById(R.id.image_view);
+        captureButton = findViewById(R.id.take_photo_button);
         detectText = findViewById(R.id.detect_text_button);
-        takePhoto = findViewById(R.id.take_photo_button);
         recognizedText = findViewById(R.id.recognized_text);
         logOutButton = findViewById(R.id.logout_button);
 
-        detectText.setOnClickListener(v -> runTextRecognition(bMap));
-        takePhoto.setOnClickListener(v -> dispatchTakePictureIntent());
+        firebaseAuth = FirebaseAuth.getInstance();
+        db = FirebaseFirestore.getInstance();
+
+        captureButton.setOnClickListener(v -> {
+            if (checkSelfPermission(Manifest.permission.CAMERA) ==
+                    PackageManager.PERMISSION_DENIED ||
+                    checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+                            PackageManager.PERMISSION_DENIED) {
+                String[] permission = {Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE};
+                requestPermissions(permission, PERMISSION_CODE);
+            } else {
+                openCamera();
+            }
+        });
+        detectText.setOnClickListener(v -> runTextRecognition());
         logOutButton.setOnClickListener(v -> logOut());
     }
 
-    private void runTextRecognition(Bitmap image) {
+    private void openCamera() {
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.Images.Media.TITLE, "New Picture");
+        values.put(MediaStore.Images.Media.DESCRIPTION, "From the Camera");
+        image_uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+        Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+        cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, image_uri);
+        startActivityForResult(cameraIntent, IMAGE_CAPTURE_CODE);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        if (requestCode == PERMISSION_CODE) {
+            if (grantResults.length > 0 && grantResults[0] ==
+                    PackageManager.PERMISSION_GRANTED) {
+                openCamera();
+            } else {
+                Toast.makeText(this, "Permission denied...", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (resultCode == RESULT_OK) {
+            imageView.setImageURI(image_uri);
+        }
+    }
+
+    private void runTextRecognition() {
+        InputImage image = null;
         try {
-            InputImage inputImage = InputImage.fromBitmap(image, 0);
-            TextRecognizer recognizer = TextRecognition.getClient();
-            Task<Text> result = recognizer.process(inputImage)
-                    .addOnSuccessListener(text -> {
-                        processTextRecognitionResult(text);
-                    })
-                    .addOnFailureListener(
-                            e -> e.printStackTrace());
-        } catch (Exception e) {
-            Toast.makeText(this, "Please first take a picture", Toast.LENGTH_SHORT).show();
+            if (image_uri != null) {
+                image = InputImage.fromFilePath(this, image_uri);
+                TextRecognizer recognizer = TextRecognition.getClient();
+                assert image != null;
+                Task<Text> result = recognizer.process(image)
+                        .addOnSuccessListener(text -> {
+                            processTextRecognitionResult(text);
+                        });
+            } else
+                Toast.makeText(this, "Please take a picture first", Toast.LENGTH_SHORT).show();
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 
@@ -93,27 +141,6 @@ public class TextRecognitionActivity extends AppCompatActivity {
                     .addOnCompleteListener(task -> Log.d("Text", "Text Saved"));
         } catch (Exception e) {
             Toast.makeText(this, "Text is not found", Toast.LENGTH_SHORT).show();
-        }
-
-    }
-
-    private void dispatchTakePictureIntent() {
-        Intent takePictureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-        try {
-            startActivityForResult(takePictureIntent, REQUEST_IMAGE_CAPTURE);
-        } catch (ActivityNotFoundException e) {
-            e.printStackTrace();
-        }
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_IMAGE_CAPTURE && resultCode == RESULT_OK) {
-            Bundle extras = data.getExtras();
-            Bitmap imageBitmap = (Bitmap) extras.get("data");
-            imageView.setImageBitmap(imageBitmap);
-            bMap = imageBitmap;
         }
     }
 
