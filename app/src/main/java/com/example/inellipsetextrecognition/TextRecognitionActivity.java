@@ -29,8 +29,6 @@ import com.google.mlkit.vision.text.TextRecognizer;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -123,27 +121,35 @@ public class TextRecognitionActivity extends AppCompatActivity {
 
     private void processTextRecognitionResult(Text text) {
         String resultText = text.getText();
-        // String[] list = resultText.split(" ");
-        // Log.d("list", Arrays.toString(list));
         if (resultText.isEmpty()) {
             Toast.makeText(this, "Text is not found", Toast.LENGTH_SHORT).show();
         }
         recognizedText.setMovementMethod(new ScrollingMovementMethod());
-        recognizedText.setText(resultText);
         saveRecognizedText(resultText);
-
+        ArrayList<String> list = new ArrayList<>();
         for (Text.TextBlock block : text.getTextBlocks()) {
             String blockText = block.getText();
             for (Text.Line line : block.getLines()) {
                 String lineText = line.getText();
                 for (Text.Element element : line.getElements()) {
-                    String elementText = element.getText();
-                    if (elementText.equals("GEFORCE")) {
-                        int index = elementText.indexOf("GEFORCE");
-                        Log.d("element", index + " " + elementText);
-                    }
+                    list.add(element.getText());
                 }
             }
+        }
+        if (list.contains("NAME") && list.contains("SURNAME")) {
+            int nameIndex = list.indexOf("NAME");
+            int surnameIndex = list.indexOf("SURNAME");
+            String name = list.get(nameIndex + 2);
+            String surname = list.get(surnameIndex + 2);
+            recognizedText.setText(name + " " + surname);
+        } else if (list.contains("ADDRESS") && list.contains("ID")) {
+            int addressIndex = list.indexOf("ADDRESS");
+            int idNumIndex = list.indexOf("ID");
+            String address = list.get(addressIndex + 2);
+            String id = list.get(idNumIndex + 2);
+            recognizedText.setText(address + "\n" + id);
+        } else {
+            recognizedText.setText(resultText);
         }
     }
 
