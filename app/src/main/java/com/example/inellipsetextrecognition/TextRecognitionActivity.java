@@ -7,6 +7,7 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.text.method.ScrollingMovementMethod;
 import android.util.Log;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -27,6 +28,9 @@ import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -106,7 +110,6 @@ public class TextRecognitionActivity extends AppCompatActivity {
             if (image_uri != null) {
                 image = InputImage.fromFilePath(this, image_uri);
                 TextRecognizer recognizer = TextRecognition.getClient();
-                assert image != null;
                 Task<Text> result = recognizer.process(image)
                         .addOnSuccessListener(text -> {
                             processTextRecognitionResult(text);
@@ -120,11 +123,28 @@ public class TextRecognitionActivity extends AppCompatActivity {
 
     private void processTextRecognitionResult(Text text) {
         String resultText = text.getText();
+        // String[] list = resultText.split(" ");
+        // Log.d("list", Arrays.toString(list));
         if (resultText.isEmpty()) {
             Toast.makeText(this, "Text is not found", Toast.LENGTH_SHORT).show();
         }
-        saveRecognizedText(resultText);
+        recognizedText.setMovementMethod(new ScrollingMovementMethod());
         recognizedText.setText(resultText);
+        saveRecognizedText(resultText);
+
+        for (Text.TextBlock block : text.getTextBlocks()) {
+            String blockText = block.getText();
+            for (Text.Line line : block.getLines()) {
+                String lineText = line.getText();
+                for (Text.Element element : line.getElements()) {
+                    String elementText = element.getText();
+                    if (elementText.equals("GEFORCE")) {
+                        int index = elementText.indexOf("GEFORCE");
+                        Log.d("element", index + " " + elementText);
+                    }
+                }
+            }
+        }
     }
 
     private void saveRecognizedText(String text) {
@@ -140,7 +160,7 @@ public class TextRecognitionActivity extends AppCompatActivity {
                     .set(savedText, SetOptions.merge())
                     .addOnCompleteListener(task -> Log.d("Text", "Text Saved"));
         } catch (Exception e) {
-            Toast.makeText(this, "Text is not found", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Text is not saved", Toast.LENGTH_SHORT).show();
         }
     }
 
